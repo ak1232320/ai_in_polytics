@@ -21,3 +21,4 @@ data_spravedlivo/
 
 docker-compose.yml
 
+qdrant_store/
