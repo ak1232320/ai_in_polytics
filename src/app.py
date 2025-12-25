@@ -41,6 +41,12 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 logger.info("📋 Loading environment variables...")
 
+def env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
 # ===================== Настройки =====================
 QDRANT_HOST = os.getenv("QDRANT_HOST")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT"))
@@ -49,12 +55,23 @@ COLLECTION   = os.getenv("QDRANT_COLLECTION")
 EMB_MODEL    = os.getenv("EMB_MODEL")
 TOP_K        = int(os.getenv("TOP_K"))
 
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip().lower()
+LLM_EXPECT_JSON = env_bool("LLM_EXPECT_JSON", True)
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+OPENROUTER_REFERER = os.getenv("OPENROUTER_REFERER")
+OPENROUTER_TITLE = os.getenv("OPENROUTER_TITLE")
+
 LLM_MODEL    = os.getenv("LLM_MODEL", "gpt-4o-mini")
 LLM_TEMP     = float(os.getenv("LLM_TEMP", "1"))
 
 logger.info(f"⚙️  Config: QDRANT_PATH={QDRANT_PATH}, COLLECTION={COLLECTION}")
-logger.info(f"⚙️  Config: EMB_MODEL={EMB_MODEL}, LLM_MODEL={LLM_MODEL}")
+logger.info(
+    f"⚙️  Config: EMB_MODEL={EMB_MODEL}, LLM_MODEL={LLM_MODEL}, "
+    f"LLM_PROVIDER={LLM_PROVIDER}, LLM_EXPECT_JSON={LLM_EXPECT_JSON}"
+)
 
 # ===================== FastAPI =====================
 logger.info("🌐 Initializing FastAPI application...")
@@ -87,12 +104,29 @@ async def startup():
     emb_model = SentenceTransformer(EMB_MODEL)
     logger.info("✅ Embedding model loaded")
 
-    # OpenAI
-    logger.info("🔑 Initializing OpenAI client...")
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY не задан в окружении.")
-    oa_client = OpenAI(api_key=OPENAI_API_KEY)
-    logger.info("✅ OpenAI client ready")
+    # OpenAI-compatible client (OpenRouter uses the same SDK with a different base_url)
+    logger.info("🔑 Initializing LLM client...")
+    if LLM_PROVIDER == "openrouter":
+        if not OPENROUTER_API_KEY:
+            raise RuntimeError("OPENROUTER_API_KEY не задан в окружении.")
+        headers = {}
+        if OPENROUTER_REFERER:
+            headers["HTTP-Referer"] = OPENROUTER_REFERER
+        if OPENROUTER_TITLE:
+            headers["X-Title"] = OPENROUTER_TITLE
+        oa_client = OpenAI(
+            api_key=OPENROUTER_API_KEY,
+            base_url=OPENROUTER_BASE_URL,
+            default_headers=headers or None,
+        )
+        logger.info("✅ OpenRouter client ready")
+    else:
+        if LLM_PROVIDER != "openai":
+            logger.warning(f"⚠️ Unknown LLM_PROVIDER='{LLM_PROVIDER}', falling back to OpenAI")
+        if not OPENAI_API_KEY:
+            raise RuntimeError("OPENAI_API_KEY не задан в окружении.")
+        oa_client = OpenAI(api_key=OPENAI_API_KEY)
+        logger.info("✅ OpenAI client ready")
 
     # Сохраняем в app.state
     app.state.qdrant = qdrant
@@ -179,16 +213,16 @@ def generate_dialogue(req: GenerateRequest, request: Request):
     )
 
     # 3) Вызов LLM
-    logger.info(f"🤖 Calling OpenAI ({LLM_MODEL})...")
+    logger.info(f"🤖 Calling LLM ({LLM_MODEL})...")
     content = call_openai(
         oa_client,
         prompt["system"],
         prompt["user"],
         model=LLM_MODEL,
         temperature=LLM_TEMP,
-        expect_json=True
+        expect_json=LLM_EXPECT_JSON
     )
-    logger.info("✅ OpenAI response received")
+    logger.info("✅ LLM response received")
 
     # 4) Парсинг результата
     try:

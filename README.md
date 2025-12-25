@@ -24,6 +24,10 @@ docker run -d \
   -e OPENAI_API_KEY=your-api-key-here \
   ai-in-politics
 
+# Для OpenRouter:
+# -e LLM_PROVIDER=openrouter \
+# -e OPENROUTER_API_KEY=your-openrouter-key-here \
+
 # Просмотр логов (с детальной диагностикой)
 docker logs -f ai-politics
 
@@ -56,18 +60,36 @@ uv run python -c "from src.app import app; print('Import OK')"
 
 ## Настройка переменных окружения
 
-1. Скопируйте файл `env.example` в `.env`:
+1. Скопируйте файл `.env.example` в `.env`:
 ```bash
-cp env.example .env
+cp .env.example .env
 ```
 
-2. Отредактируйте `.env` и добавьте ваш OpenAI API ключ:
+2. По умолчанию используется OpenAI (`LLM_PROVIDER=openai`). Для него нужен ключ:
 ```bash
 OPENAI_API_KEY=sk-your-actual-api-key-here
 ```
 
+Если хотите использовать OpenRouter (OpenAI-совместимый API), настройте:
+```bash
+LLM_PROVIDER=openrouter
+OPENROUTER_API_KEY=your-openrouter-key-here
+# Опционально:
+# OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+# OPENROUTER_REFERER=your-site-url
+# OPENROUTER_TITLE=your-app-name
+# LLM_MODEL=openai/gpt-4o-mini
+```
 
-Получить ключ можно на https://platform.openai.com/api-keys
+Если выбранная модель не поддерживает строгий JSON-режим, можно отключить его:
+```bash
+LLM_EXPECT_JSON=false
+```
+
+Получить ключ OpenAI можно на https://platform.openai.com/api-keys  
+Получить ключ OpenRouter можно на https://openrouter.ai/keys
+
+Примечание: интеграция VK не требует изменений, API остаётся тем же.
 
 ### Системный промпт диалогов
 

@@ -2,6 +2,8 @@ import os
 import logging
 from typing import Optional, Dict, List
 
+from openai import BadRequestError
+
 # Настройка логирования
 logger = logging.getLogger(__name__)
 
@@ -194,9 +196,16 @@ def build_rag_context(hits: List[Dict]) -> str:
 
 
 # ===================== OpenAI Генератор =====================
+def _is_json_mode_error(exc: Exception) -> bool:
+    if not isinstance(exc, BadRequestError):
+        return False
+    msg = str(exc).lower()
+    return "response_format" in msg or ("json" in msg and "not supported" in msg)
+
+
 def call_openai(oa_client, system_msg: str, user_msg: str, model: str, temperature: float, expect_json: bool = True) -> str:
-    """Вызов OpenAI API для генерации ответа."""
-    logger.debug(f"🤖 Preparing OpenAI request: model={model}, temperature={temperature}, expect_json={expect_json}")
+    """Вызов LLM API для генерации ответа."""
+    logger.debug(f"🤖 Preparing LLM request: model={model}, temperature={temperature}, expect_json={expect_json}")
     kwargs = dict(
         model=model,
         messages=[
@@ -208,8 +217,17 @@ def call_openai(oa_client, system_msg: str, user_msg: str, model: str, temperatu
     if expect_json:
         kwargs["response_format"] = {"type": "json_object"}
 
-    logger.debug("📡 Sending request to OpenAI API...")
-    resp = oa_client.chat.completions.create(**kwargs)
+    logger.debug("📡 Sending request to LLM API...")
+    try:
+        resp = oa_client.chat.completions.create(**kwargs)
+    except BadRequestError as exc:
+        if expect_json and _is_json_mode_error(exc):
+            # Some providers/models (e.g., OpenRouter) don't support strict JSON mode.
+            logger.warning("⚠️ JSON mode not supported, retrying without response_format")
+            kwargs.pop("response_format", None)
+            resp = oa_client.chat.completions.create(**kwargs)
+        else:
+            raise
     content = resp.choices[0].message.content
-    logger.debug(f"✅ OpenAI response received: {len(content)} characters")
+    logger.debug(f"✅ LLM response received: {len(content)} characters")
     return content
