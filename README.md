@@ -1,159 +1,169 @@
 # AI in Politics - RAG System
 
-Система для генерации диалогов и анализа политических текстов с использованием RAG (Retrieval-Augmented Generation).
+Система для генерации политических диалогов и комментариев с использованием RAG (Retrieval-Augmented Generation).
 
 ## Установка
 
 ```bash
-# Установка зависимостей через uv
 uv sync
 ```
 
-## 🐳 Docker деплой
+## Настройка
 
-### Сборка и запуск
-
+1. Скопируйте `.env.example` в `.env`:
 ```bash
-# Сборка образа
-docker build -t ai-in-politics .
-
-# Запуск контейнера
-docker run -d \
-  --name ai-politics \
-  -p 8000:8000 \
-  -e OPENAI_API_KEY=your-api-key-here \
-  ai-in-politics
-
-# Просмотр логов (с детальной диагностикой)
-docker logs -f ai-politics
-
-# Остановка
-docker stop ai-politics
-
-# Удаление контейнера
-docker rm ai-politics
+cp .env.example .env
 ```
 
-### Диагностика проблем
-
-Если контейнер зависает на "Waiting for application startup":
-- Проверьте логи: `docker logs -f <container_id>`
-- При первом запуске модель эмбеддингов (~2GB) кэшируется в образе, это занимает время
-- После сборки образа последующие запуски будут мгновенными
-
-Интерактивная отладка:
-```bash
-# Запуск bash в контейнере
-docker run -it --rm ai-in-politics bash
-
-# Проверка структуры
-ls -la /app
-ls -la /app/qdrant_store
-
-# Ручной запуск приложения
-uv run python -c "from src.app import app; print('Import OK')"
+2. Добавьте OpenAI API ключ в `.env`:
+```
+OPENAI_API_KEY=sk-your-api-key-here
 ```
 
-## Настройка переменных окружения
+Получить ключ: https://platform.openai.com/api-keys
 
-1. Скопируйте файл `env.example` в `.env`:
-```bash
-cp env.example .env
-```
+### Переменные окружения
 
-2. Отредактируйте `.env` и добавьте ваш OpenAI API ключ:
-```bash
-OPENAI_API_KEY=sk-your-actual-api-key-here
-```
+| Переменная | Описание | По умолчанию |
+|------------|----------|--------------|
+| `OPENAI_API_KEY` | API ключ OpenAI | - |
+| `LLM_MODEL` | Модель OpenAI | `gpt-4o-mini` |
+| `USE_RAG` | Использовать RAG | `true` |
+| `QDRANT_PATH` | Путь к Qdrant | `./qdrant_store` |
+| `EMB_MODEL` | Модель эмбеддингов | `BAAI/bge-m3` |
+| `TOP_K` | Количество документов RAG | `6` |
 
-
-Получить ключ можно на https://platform.openai.com/api-keys
-
-### Системный промпт диалогов
-
-Системный промпт вынесен в один файл и может быть переопределён через переменную окружения:
-
-- `dialogue_system_prompt.txt` — файл по умолчанию (можете изменить под свой стиль)
-
-Переменная окружения:
-
-```bash
-DIALOGUE_SYSTEM_PROMPT_PATH=dialogue_system_prompt.txt
-```
-
-В диалоге участник A — сторонник/защитник позиции партии, участник B — критик. Стиль — живой, уместная ирония, без оскорблений.
+**Совет**: Установите `USE_RAG=false` для быстрого запуска без загрузки модели эмбеддингов (~2GB).
 
 ## Запуск
 
-### FastAPI сервер для генерации диалогов
-
 ```bash
-# С автоперезагрузкой для разработки
+# Development (с автоперезагрузкой)
 uv run uvicorn src.app:app --reload --host 0.0.0.0 --port 8000
 
-# Или напрямую
+# Production
 uv run python src/app.py
 ```
 
-API будет доступен на http://localhost:8000
-
+API: http://localhost:8000
 - Документация: http://localhost:8000/docs
 - Health check: http://localhost:8000/health
 
-### Другие скрипты
+## Режимы генерации
 
-```bash
-# Индексация корпуса в Qdrant
-uv run python src/index_corpus.py
+| Mode | Паттерн | Описание |
+|------|---------|----------|
+| `dialogue` | A-B-A-B-A-B | Стандартный диалог с чередованием |
+| `dialogue_double` | A-B-B | Один начинает, другой добивает двумя репликами |
+| `single` | A | Одиночный комментарий |
+| `multi_independent` | A, B, C | Независимые комментарии от 2-3 аккаунтов |
 
-# Тестирование retriever
-uv run python test_retriever.py
+## API
 
-# RAG MVP
-uv run python src/rag_mvp.py
-```
+### POST /generate_dialogue
 
-## Структура проекта
-
-- `src/app.py` - FastAPI API сервер (только endpoints)
-- `src/dialogue_prompts.py` - RAG логика и промпты для диалогов
-- `src/index_corpus.py` - Индексация текстов в Qdrant
-- `src/rag_mvp.py` - MVP RAG системы
-- `src/scrape_data.py` - Скрапинг данных
-- `test_retriever.py` - Тесты retriever
-- `data_spravedlivo/` - Данные corpus
-- `qdrant_store/` - Локальное хранилище Qdrant
-
-## API Endpoints
-
-### POST /rag_generate
-
-Генерация контента на основе RAG.
+Генерация контента с выбором режима.
 
 **Параметры:**
-- `message` - описание темы/кейса
-- `mode` - тип генерации: `dialogue`, `post`, `answer`, `summary`
-- `top_k` - количество релевантных документов (по умолчанию 6)
-- `turns` - количество ходов в диалоге (для mode=dialogue)
-- `chars_per_turn` - лимит символов на реплику (для mode=dialogue)
-- `stance_A`, `stance_B` - позиции участников (опционально)
 
-**Пример запроса:**
+| Параметр | Тип | Описание | По умолчанию |
+|----------|-----|----------|--------------|
+| `message` | string | Тема/описание поста | *обязательный* |
+| `mode` | string | Режим генерации | `dialogue` |
+| `turns` | int | Число ходов (для dialogue) | `6` |
+| `chars_per_turn` | int | Лимит символов на реплику | `400` |
+| `speakers` | int | Число участников (для multi_independent) | `2` |
+| `top_k` | int | Количество RAG документов | `6` |
+| `stance_A` | string | Позиция участника A | *опционально* |
+| `stance_B` | string | Позиция участника B | *опционально* |
+
+**Примеры запросов:**
+
+```bash
+# Диалог A-B-A-B (по умолчанию)
+curl -X POST http://localhost:8000/generate_dialogue \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Повышение минимальной зарплаты", "mode": "dialogue", "turns": 6}'
+
+# Диалог A-B-B
+curl -X POST http://localhost:8000/generate_dialogue \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Повышение минимальной зарплаты", "mode": "dialogue_double"}'
+
+# Одиночный комментарий
+curl -X POST http://localhost:8000/generate_dialogue \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Повышение минимальной зарплаты", "mode": "single"}'
+
+# Независимые комментарии от 3 аккаунтов
+curl -X POST http://localhost:8000/generate_dialogue \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Повышение минимальной зарплаты", "mode": "multi_independent", "speakers": 3}'
+```
+
+**Пример ответа (dialogue):**
 ```json
 {
-  "message": "Обсудите влияние социальных сетей на политику",
+  "query": "Повышение минимальной зарплаты",
   "mode": "dialogue",
-  "top_k": 6,
-  "turns": 6,
-  "chars_per_turn": 400
+  "rag_used": [],
+  "result": {
+    "meta": {"topic": "минималка", "turns": 6},
+    "dialogue": [
+      {"role": "A", "turn": 1, "text": "..."},
+      {"role": "B", "turn": 2, "text": "..."}
+    ],
+    "summary": {"verdict": "A звучит убедительнее"}
+  }
 }
 ```
 
 ### POST /retrieve
 
-Поиск релевантных документов.
+Поиск релевантных документов в Qdrant.
 
 ### GET /health
 
 Проверка статуса сервера.
 
+## Структура проекта
+
+```
+ai_in_polytics/
+├── src/
+│   ├── app.py              # FastAPI endpoints
+│   ├── generate_dialogue.py # RAG логика, prompt builders
+│   └── index_corpus.py      # Индексация в Qdrant
+├── prompts/                 # Системные промпты
+│   ├── dialogue.txt         # A-B-A-B диалог
+│   ├── dialogue_double.txt  # A-B-B паттерн
+│   ├── single.txt           # Одиночный комментарий
+│   └── multi_independent.txt # Независимые комментарии
+├── qdrant_store/            # Локальная БД Qdrant
+├── .env                     # Конфигурация
+└── pyproject.toml           # Зависимости
+```
+
+## Docker
+
+```bash
+# Сборка
+docker build -t ai-in-politics .
+
+# Запуск
+docker run -d -p 8000:8000 -e OPENAI_API_KEY=sk-... ai-in-politics
+
+# Логи
+docker logs -f <container_id>
+```
+
+## Другие скрипты
+
+```bash
+# Индексация корпуса в Qdrant
+uv run python src/index_corpus.py
+
+# Линтинг
+uv run ruff check .
+uv run ruff format .
+```
