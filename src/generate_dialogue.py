@@ -1,7 +1,9 @@
 import os
 import logging
+import numpy as np
 from pathlib import Path
 from typing import Optional, Dict, List
+from prompts.single import get_single_prompt
 
 # Настройка логирования
 logger = logging.getLogger(__name__)
@@ -86,7 +88,10 @@ def build_single_prompt(
     chars_per_turn: int
 ) -> Dict[str, str]:
     """Один самостоятельный комментарий."""
-    system_msg = load_system_prompt("single")
+    comment_types = np.array(['support', 'fact', 'question', 'critique'])
+    probabilities = [0.3, 0.3, 0.3, 0.1]
+    comment_type = np.random.choice(comment_types, size=1, p=probabilities)[0]
+    system_msg = get_single_prompt(comment_type)
 
     user_msg = f"""
 === ТЕМА / ПОСТ ===
